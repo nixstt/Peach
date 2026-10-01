@@ -1,6 +1,13 @@
 from datetime import datetime, timezone
 
-from pydantic import AwareDatetime, BaseModel, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 
 def _to_utc_z(value: datetime) -> str:
