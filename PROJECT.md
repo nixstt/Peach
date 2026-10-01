@@ -1,4 +1,5 @@
-spry. First slice: list meetings and create a meeting.
+# spry
+Monorepo. First slice: list meetings and create a meeting.
 
 ## 1. Structure
 
