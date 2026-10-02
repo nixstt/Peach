@@ -2,8 +2,6 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from app.db import Base
-from app.models import Meeting  # noqa: F401
 from sqlalchemy import engine_from_config, pool
 
 config = context.config
@@ -11,9 +9,26 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.environ.get("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+# Get DATABASE_URL from environment first, then try to import from config
+database_url = os.getenv("DATABASE_URL")
+if not database_url:
+    try:
+        from app.config import DATABASE_URL as config_database_url
+        database_url = config_database_url
+    except Exception:
+        pass
+
+if not database_url:
+    raise RuntimeError(
+        "Database URL is not configured. Set DATABASE_URL or "
+        "POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB."
+    )
+
+# Import after DATABASE_URL is resolved
+from app.db import Base
+from app.models import Meeting  # noqa: F401
+
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
