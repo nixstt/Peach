@@ -1,47 +1,24 @@
-from collections.abc import AsyncIterator
-from typing import Annotated
+from collections.abc import Generator
 
-from fastapi import Depends
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import NullPool
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import get_settings
+from app.config import database_url
+
+engine = create_engine(database_url(), pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 class Base(DeclarativeBase):
-    """Declarative base shared by every ORM model."""
+    pass
 
 
-def create_engine() -> AsyncEngine:
-    settings = get_settings()
-    if not settings.db_pooling:
-        return create_async_engine(settings.database_url, echo=False, poolclass=NullPool)
-    return create_async_engine(
-        settings.database_url,
-        echo=False,
-        pool_pre_ping=True,
-    )
-
-
-engine: AsyncEngine = create_engine()
-SessionFactory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-
-
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency yielding a session that commits on success, rolls back on error."""
-    async with SessionFactory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

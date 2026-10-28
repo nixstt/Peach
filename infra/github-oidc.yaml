@@ -1,68 +1,44 @@
 AWSTemplateFormatVersion: "2010-09-09"
-
 Description: >-
-  A role GitHub Actions can assume to deploy this project, through OIDC rather
-  than a stored access key. GitHub presents a short-lived token describing the
-  repository and branch; AWS trusts it only for the subject below. Nothing
-  long-lived is ever copied into the repository.
-
-  Created by scripts/github-role.sh (make github-role).
+  A role GitHub Actions can assume for this repository. GitHub signs a token
+  that names the repository and the branch. AWS trusts that token only when
+  both conditions below match. There is no stored access key.
 
 Parameters:
   ProjectName:
     Type: String
-    Default: peach
-    Description: Scopes what the role is allowed to touch.
-
+    Default: spry
   GitHubRepo:
     Type: String
-    Description: owner/repo, e.g. dobosevych/Peach
     AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
-
   SubjectClaim:
     Type: String
     Default: "ref:refs/heads/main"
-    Description: >-
-      Which workflow runs may assume the role. The default allows only runs on
-      main. "*" would allow any branch and any pull request of the repo, which
-      means anyone who can open a PR can deploy.
-
   ExistingProviderArn:
     Type: String
     Default: ""
-    Description: >-
-      An account may hold only one GitHub OIDC provider. The script passes the
-      existing one here if there is one, and this stack creates it otherwise.
 
 Conditions:
   CreateProvider: !Equals [!Ref ExistingProviderArn, ""]
 
 Resources:
-  # Thumbprints are no longer what AWS checks for this issuer - it validates
-  # against its own trust store - but the property is kept for older behaviour.
   OidcProvider:
     Type: AWS::IAM::OIDCProvider
     Condition: CreateProvider
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Url: https://token.actions.githubusercontent.com
       ClientIdList:
         - sts.amazonaws.com
       ThumbprintList:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
-        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
-      Tags:
-        - Key: PROJECT_NAME
-          Value: !Ref ProjectName
 
   DeployRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "${ProjectName}-github-deploy"
-      Description: !Sub "Deploys ${ProjectName} from ${GitHubRepo}"
       MaxSessionDuration: 3600
-      Tags:
-        - Key: PROJECT_NAME
-          Value: !Ref ProjectName
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -75,38 +51,33 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
-                # Without the audience check any OIDC token would do.
+                # Audience must be STS. StringEquals does not treat * as a wildcard.
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              StringLike:
-                # And without this, any repository on GitHub would do.
+                # One repository, the main branch only. A pull request does not match.
                 token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepo}:${SubjectClaim}"
       Policies:
-        # Deliberately not AdministratorAccess. Scoped to the services the
-        # deploy actually drives, and to this project's names where the API
-        # supports resource-level permissions - several of these do not.
-        - PolicyName: deploy-backend
+        - PolicyName: deploy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: CloudFormation
+              - Sid: CloudFormationStacks
                 Effect: Allow
                 Action: cloudformation:*
                 Resource:
                   - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/${ProjectName}-*/*"
-                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:changeSet/*"
-
-              - Sid: CloudFormationReadOnly
+                  - !Sub "arn:aws:cloudformation:*:${AWS::AccountId}:stack/${ProjectName}/*"
+              - Sid: CloudFormationRead
                 Effect: Allow
                 Action:
                   - cloudformation:ValidateTemplate
-                  - cloudformation:ListStacks
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:GetTemplateSummary
                 Resource: "*"
-
-              - Sid: EcrLogin
+              - Sid: EcrAuth
                 Effect: Allow
                 Action: ecr:GetAuthorizationToken
                 Resource: "*"
-
               - Sid: EcrPush
                 Effect: Allow
                 Action:
@@ -117,19 +88,14 @@ Resources:
                   - ecr:DescribeImages
                   - ecr:DescribeRepositories
                   - ecr:GetDownloadUrlForLayer
-                  # Lambda grants itself pull access through the repository
-                  # policy when the function is created from an image.
-                  - ecr:GetRepositoryPolicy
-                  - ecr:SetRepositoryPolicy
                   - ecr:InitiateLayerUpload
+                  - ecr:ListImages
                   - ecr:PutImage
                   - ecr:PutLifecyclePolicy
                   - ecr:TagResource
                   - ecr:UploadLayerPart
+                  - ecr:BatchDeleteImage
                 Resource: !Sub "arn:aws:ecr:*:${AWS::AccountId}:repository/${ProjectName}-*"
-
-              # CloudFormation creates the function's execution role, and
-              # Lambda needs it passed to it. Both stay inside this project's names.
               - Sid: ProjectRoles
                 Effect: Allow
                 Action:
@@ -145,10 +111,17 @@ Resources:
                   - iam:PassRole
                   - iam:PutRolePolicy
                   - iam:TagRole
-                  - iam:UntagRole
-                  - iam:UpdateAssumeRolePolicy
                 Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${ProjectName}-*"
-
+              - Sid: ServiceLinkedRoles
+                Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName:
+                      - ecs.amazonaws.com
+                      - elasticloadbalancing.amazonaws.com
+                      - rds.amazonaws.com
               - Sid: Networking
                 Effect: Allow
                 Action:
@@ -161,31 +134,21 @@ Resources:
                   - ec2:RevokeSecurityGroupEgress
                   - ec2:RevokeSecurityGroupIngress
                 Resource: "*"
-
-              # Includes lambda:InvokeFunction, which the deploy uses to run
-              # migrations once the new image is live.
-              - Sid: Function
-                Effect: Allow
-                Action: lambda:*
-                Resource: !Sub "arn:aws:lambda:*:${AWS::AccountId}:function:${ProjectName}-*"
-
-              - Sid: Database
-                Effect: Allow
-                Action: rds:*
-                Resource:
-                  - !Sub "arn:aws:rds:*:${AWS::AccountId}:cluster:${ProjectName}-*"
-                  - !Sub "arn:aws:rds:*:${AWS::AccountId}:db:${ProjectName}-*"
-                  - !Sub "arn:aws:rds:*:${AWS::AccountId}:subgrp:*"
-                  - !Sub "arn:aws:rds:*:${AWS::AccountId}:cluster-pg:*"
-                  - !Sub "arn:aws:rds:*:${AWS::AccountId}:pg:*"
-
-              - Sid: DatabaseDescribe
+              - Sid: LoadBalancer
                 Effect: Allow
                 Action:
-                  - rds:Describe*
-                  - rds:ListTagsForResource
+                  - elasticloadbalancing:*
                 Resource: "*"
-
+              - Sid: Ecs
+                Effect: Allow
+                Action:
+                  - ecs:*
+                Resource: "*"
+              - Sid: Database
+                Effect: Allow
+                Action:
+                  - rds:*
+                Resource: "*"
               - Sid: Secrets
                 Effect: Allow
                 Action:
@@ -193,11 +156,8 @@ Resources:
                   - secretsmanager:DeleteSecret
                   - secretsmanager:DescribeSecret
                   - secretsmanager:GetSecretValue
-                  - secretsmanager:PutSecretValue
                   - secretsmanager:TagResource
-                  - secretsmanager:UpdateSecret
                 Resource: !Sub "arn:aws:secretsmanager:*:${AWS::AccountId}:secret:${ProjectName}/*"
-
               - Sid: Logs
                 Effect: Allow
                 Action:
@@ -208,18 +168,33 @@ Resources:
                   - logs:PutRetentionPolicy
                   - logs:TagResource
                 Resource: "*"
+              - Sid: FrontendBucket
+                Effect: Allow
+                Action: s3:*
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-frontend-*"
+                  - !Sub "arn:aws:s3:::${ProjectName}-frontend-*/*"
+              - Sid: CloudFront
+                Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetInvalidation
+                  - cloudfront:ListInvalidations
+                  - cloudfront:CreateDistribution
+                  - cloudfront:UpdateDistribution
+                  - cloudfront:DeleteDistribution
+                  - cloudfront:TagResource
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:ListDistributions
+                  - cloudfront:CreateOriginAccessControl
+                  - cloudfront:UpdateOriginAccessControl
+                  - cloudfront:DeleteOriginAccessControl
+                  - cloudfront:GetOriginAccessControl
+                Resource: "*"
 
 Outputs:
   RoleArn:
-    Description: Set this as the AWS_DEPLOY_ROLE_ARN repository variable.
     Value: !GetAtt DeployRole.Arn
-
   Subject:
-    Description: The only OIDC subject allowed to assume the role.
     Value: !Sub "repo:${GitHubRepo}:${SubjectClaim}"
-
-  ProviderArn:
-    Value: !If
-      - CreateProvider
-      - !Ref OidcProvider
-      - !Ref ExistingProviderArn

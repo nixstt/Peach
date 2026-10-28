@@ -1,78 +1,54 @@
-name: peach
+name: spry
+
+# Laptop only. The backend image is what ECS runs. This file does not go with it.
+# Published ports, the database password, and the Vite dev server are not production.
 
 services:
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
+  postgres:
+    image: postgres:16
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-peach}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-peach}
-      POSTGRES_DB: ${POSTGRES_DB:-peach}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-peach} -d ${POSTGRES_DB:-peach}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 10
-    networks: [peach]
 
   backend:
-    build:
-      context: ./backend
-    restart: unless-stopped
+    build: ./backend
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://peach:peach@db:5432/peach}
-      APP_ENV: ${APP_ENV:-development}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      # From make deploy-cognito. Unset, every /api/v1 route answers 503.
-      COGNITO_REGION: ${COGNITO_REGION:-us-east-1}
-      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID:-}
-      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/postgres
+      CORS_ORIGINS: http://localhost:3000
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "8000:8000"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      test:
+        - CMD
+        - python
+        - -c
+        - 'import urllib.request; urllib.request.urlopen("http://localhost:8000/api/meetings")'
       interval: 5s
       timeout: 5s
       retries: 12
-      start_period: 20s
-    networks: [peach]
+      start_period: 10s
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        NEXT_PUBLIC_COGNITO_REGION: ${COGNITO_REGION:-us-east-1}
-        NEXT_PUBLIC_COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
-        NEXT_PUBLIC_COGNITO_DOMAIN: ${COGNITO_DOMAIN:-}
-        NEXT_PUBLIC_COGNITO_GOOGLE_ENABLED: ${COGNITO_GOOGLE_ENABLED:-false}
-    restart: unless-stopped
+    build: ./frontend
     depends_on:
       backend:
         condition: service_healthy
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:8000}
-      NEXT_PUBLIC_COGNITO_REGION: ${COGNITO_REGION:-us-east-1}
-      NEXT_PUBLIC_COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
-      NEXT_PUBLIC_COGNITO_DOMAIN: ${COGNITO_DOMAIN:-}
-      NEXT_PUBLIC_COGNITO_GOOGLE_ENABLED: ${COGNITO_GOOGLE_ENABLED:-false}
-      NODE_ENV: production
+      VITE_API_URL: http://localhost:8000
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
-    networks: [peach]
+      - "3000:3000"
+    command: ["npx", "vite", "--host", "0.0.0.0", "--port", "3000"]
 
 volumes:
   pgdata:
-
-networks:
-  peach:
-    driver: bridge

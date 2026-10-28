@@ -1,0 +1,68 @@
+# CI
+#
+# on:      push, pull request, or a manual run from the Actions tab
+# jobs:    lint and test run in parallel; deploy runs after both, and only on main
+# runs-on: ubuntu-latest, a GitHub-hosted machine, not this laptop
+# steps:   uses: is a published action; run: is a shell command
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: make lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: make test
+
+  deploy:
+    name: Deploy
+    needs: [lint, test]
+    # Skipped until AWS_DEPLOY_ROLE_ARN exists, so main stays green before the
+    # account is connected. After that, a push to main runs the same Makefile
+    # targets you run locally.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    concurrency:
+      group: spry-deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          role-session-name: spry-${{ github.run_id }}
+
+      - name: Deploy
+        run: |
+          make deploy-backend
+          make deploy-frontend
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+          PROJECT_NAME: spry

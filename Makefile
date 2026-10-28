@@ -1,86 +1,49 @@
 COMPOSE := docker compose
 
-.PHONY: help up down build logs ps migrate revision test test-backend test-frontend lint fmt clean shell-backend shell-db deploy-cognito destroy-cognito deploy-backend destroy-backend logs-backend migrate-backend cert domain deploy-frontend destroy-frontend github-role
+.PHONY: help up down reset lint test deploy-backend deploy-frontend domain github-role destroy-backend destroy-frontend destroy-github-role logs-backend
 
-help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+help: ## Show targets
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
-up: ## Start the whole stack (detached)
-	$(COMPOSE) up -d --build
+up: ## Build and start postgres, the API, and the Vite app
+	$(COMPOSE) up --build
 
 down: ## Stop the stack
 	$(COMPOSE) down
 
-clean: ## Stop the stack and wipe the database volume
+reset: ## Stop the stack and delete the database volume
 	$(COMPOSE) down -v
 
-build: ## Rebuild images
-	$(COMPOSE) build
+lint: ## Run ruff, eslint, prettier, and tsc inside the images
+	$(COMPOSE) build backend frontend
+	$(COMPOSE) run --rm --no-deps --user root --entrypoint sh backend -c "pip install -q -r requirements-dev.txt && ruff check . && ruff format --check ."
+	$(COMPOSE) run --rm --no-deps --entrypoint sh frontend -c "npm run lint && npm run format:check && npx tsc --noEmit"
 
-logs: ## Tail all logs
-	$(COMPOSE) logs -f
+test: ## Run pytest against spry_test, and the frontend unit tests
+	$(COMPOSE) build backend frontend
+	$(COMPOSE) run --rm --user root --entrypoint sh -e DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/spry_test backend -c "pip install -q -r requirements-dev.txt && pytest"
+	$(COMPOSE) run --rm --no-deps --entrypoint npm frontend test
 
-ps: ## Show service status
-	$(COMPOSE) ps
-
-migrate: ## Apply migrations
-	$(COMPOSE) exec backend alembic upgrade head
-
-revision: ## Autogenerate a migration: make revision m="add x"
-	$(COMPOSE) exec backend alembic revision --autogenerate -m "$(m)"
-
-test: test-backend test-frontend ## Run all tests
-
-test-backend: ## Run backend tests
-	$(COMPOSE) exec backend pytest
-
-test-frontend: ## Run frontend tests
-	$(COMPOSE) exec frontend pnpm test
-
-lint: ## Lint both sides
-	$(COMPOSE) exec backend ruff check .
-	$(COMPOSE) exec frontend pnpm lint
-
-fmt: ## Format both sides
-	$(COMPOSE) exec backend ruff format .
-	$(COMPOSE) exec frontend pnpm format
-
-shell-backend: ## Shell into the backend container
-	$(COMPOSE) exec backend bash
-
-shell-db: ## psql into the database
-	$(COMPOSE) exec db psql -U $${POSTGRES_USER:-peach} -d $${POSTGRES_DB:-peach}
-
-deploy-cognito: ## Create/update the Cognito user pool; writes COGNITO_* to .env and prints them
-	./scripts/deploy-cognito.sh
-
-destroy-cognito: ## Delete the Cognito stack, every account in the pool included
-	./scripts/destroy-cognito.sh
-
-deploy-backend: ## Build + push the image, roll the Lambda (function URL + Aurora), migrate, write BACKEND_URL to .env
+deploy-backend: ## Build the image, push it to ECR, roll the ECS service
 	./scripts/deploy-backend.sh
 
-destroy-backend: ## Delete the backend stack, Aurora cluster included
-	./scripts/destroy-backend.sh
-
-logs-backend: ## Tail the deployed backend's CloudWatch logs
-	aws logs tail /aws/lambda/$${PROJECT_NAME:-peach}-backend --follow --since 10m
-
-migrate-backend: ## Re-run migrations on the deployed backend (deploy-backend already does)
-	aws lambda invoke --function-name $${PROJECT_NAME:-peach}-backend \
-		--cli-binary-format raw-in-base64-out --payload '{"action":"migrate"}' /dev/stdout
-
-cert: ## Request + DNS-validate a us-east-1 certificate for the frontend: make cert DOMAIN=app.example.com
-	./scripts/domain-frontend.sh cert
-
-domain: ## Assign a custom domain to the frontend: make domain DOMAIN=app.example.com
-	./scripts/domain-frontend.sh domain
-
-deploy-frontend: ## Build the static export against BACKEND_URL and ship it to S3 + CloudFront
+deploy-frontend: ## Build the bundle, sync it to S3, invalidate CloudFront
 	./scripts/deploy-frontend.sh
 
-destroy-frontend: ## Delete the frontend stack (bucket + distribution)
+domain: ## Certificate plus app/api DNS for a domain you own
+	./scripts/domain.sh
+
+github-role: ## Create the OIDC role GitHub Actions assumes
+	./scripts/github-role.sh
+
+destroy-backend: ## Delete the API, load balancer, and database
+	./scripts/destroy-backend.sh
+
+destroy-frontend: ## Delete the bucket and the CloudFront distribution
 	./scripts/destroy-frontend.sh
 
-github-role: ## Create the IAM role GitHub Actions assumes to deploy (OIDC, no keys)
-	./scripts/github-role.sh
+destroy-github-role: ## Delete the deploy role
+	./scripts/destroy-github-role.sh
+
+logs-backend: ## Tail the deployed API logs
+	aws logs tail /ecs/$${PROJECT_NAME:-spry}-backend --follow --since 10m
