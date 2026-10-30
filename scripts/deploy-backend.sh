@@ -96,7 +96,7 @@ fi
 log "updating stack ${STACK}"
 if ! aws cloudformation deploy \
   --stack-name "${STACK}" \
-  --template-file "${ROOT}/infra/backend.yaml" \
+  --template-file "$(cygpath -w "${ROOT}/infra/backend.yaml")" \
   --parameter-overrides "${overrides[@]}" \
   --capabilities CAPABILITY_NAMED_IAM \
   --no-fail-on-empty-changeset \

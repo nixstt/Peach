@@ -27,7 +27,7 @@ overrides=("ProjectName=${PROJECT_NAME}")
 log "creating the bucket and API if they are not there yet"
 if ! aws cloudformation deploy \
   --stack-name "${STACK}" \
-  --template-file "${ROOT}/infra/frontend.yaml" \
+  --template-file "infra/frontend.yaml" \
   --parameter-overrides "${overrides[@]}" \
   --capabilities CAPABILITY_NAMED_IAM \
   --no-fail-on-empty-changeset \
@@ -64,16 +64,16 @@ docker run --rm \
   -e "VITE_AUTH_REDIRECT_URI=${AUTH_REDIRECT_URI}" \
   -e "VITE_AUTH_LOGOUT_URI=${AUTH_LOGOUT_URI}" \
   node:22-alpine \
-  sh -c "npm ci && npm run build"
-[[ -f "${ROOT}/frontend/dist/index.html" ]] || die "the build did not produce dist/index.html"
+  sh -c "npm install && npm run build"
+[[ -f "frontend/dist/index.html" ]] || die "the build did not produce dist/index.html"
 
 BUCKET="$(stack_output "${STACK}" BucketName 2>/dev/null || true)"
 [[ -n "${BUCKET}" && "${BUCKET}" != "None" ]] || die "stack ${STACK} has no bucket"
 
 log "uploading to s3://${BUCKET}"
-aws s3 sync "${ROOT}/frontend/dist" "s3://${BUCKET}" --delete \
+aws s3 sync "frontend/dist" "s3://${BUCKET}" --delete \
   --cache-control "max-age=0,must-revalidate"
-aws s3 cp "${ROOT}/frontend/dist/assets" "s3://${BUCKET}/assets" --recursive \
+aws s3 cp "frontend/dist/assets" "s3://${BUCKET}/assets" --recursive \
   --cache-control "public,max-age=31536000,immutable"
 
 ORIGINS="http://localhost:3000,${SITE_URL}"
