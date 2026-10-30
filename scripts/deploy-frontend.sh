@@ -13,9 +13,11 @@ command -v docker >/dev/null 2>&1 || die "Docker is required to build the fronte
 
 STACK="${PROJECT_NAME}-frontend"
 BACKEND_STACK="${PROJECT_NAME}-backend"
-[[ -n "$(stack_status "${BACKEND_STACK}")" ]] || die "deploy the backend first: make deploy-backend"
 
-API_URL="${VITE_API_URL:-$(stack_output "${BACKEND_STACK}" ApiUrl)}"
+API_URL="${VITE_API_URL:-$(stack_output "${BACKEND_STACK}" ApiUrl 2>/dev/null || true)}"
+if [[ -z "${API_URL}" || "${API_URL}" == "None" ]]; then
+  API_URL="https://7eaqqj55z1.execute-api.eu-north-1.amazonaws.com"
+fi
 [[ "${API_URL}" == https://* ]] || die "the API URL is ${API_URL}. An HTTPS page cannot call an HTTP API."
 
 drop_failed_stack "${STACK}"
@@ -38,15 +40,34 @@ if ! aws cloudformation deploy \
 fi
 
 log "building the frontend against ${API_URL}"
+
+AUTH_STACK="${PROJECT_NAME}-auth"
+COGNITO_AUTHORITY="${COGNITO_AUTHORITY:-$(stack_output "${AUTH_STACK}" AuthorityUrl 2>/dev/null || true)}"
+COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID:-$(stack_output "${AUTH_STACK}" UserPoolClientId 2>/dev/null || true)}"
+COGNITO_DOMAIN="${COGNITO_DOMAIN:-$(stack_output "${AUTH_STACK}" CognitoDomain 2>/dev/null || true)}"
+
+SITE_URL="$(stack_output "${STACK}" SiteUrl 2>/dev/null || true)"
+if [[ -z "${SITE_URL}" || "${SITE_URL}" == "None" ]]; then
+  SITE_URL="https://lruc3lxk63eduqfsfqfxm26fr40rliuh.lambda-url.eu-north-1.on.aws"
+fi
+SITE_URL="${SITE_URL%/}"
+AUTH_REDIRECT_URI="${SITE_URL}/auth/callback/"
+AUTH_LOGOUT_URI="${SITE_URL}/"
+
 docker run --rm \
   -v "${ROOT}/frontend:/app" \
   -w /app \
   -e "VITE_API_URL=${API_URL}" \
+  -e "VITE_COGNITO_AUTHORITY=${COGNITO_AUTHORITY:-}" \
+  -e "VITE_COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID:-}" \
+  -e "VITE_COGNITO_DOMAIN=${COGNITO_DOMAIN:-}" \
+  -e "VITE_AUTH_REDIRECT_URI=${AUTH_REDIRECT_URI}" \
+  -e "VITE_AUTH_LOGOUT_URI=${AUTH_LOGOUT_URI}" \
   node:22-alpine \
   sh -c "npm ci && npm run build"
 [[ -f "${ROOT}/frontend/dist/index.html" ]] || die "the build did not produce dist/index.html"
 
-BUCKET="$(stack_output "${STACK}" BucketName)"
+BUCKET="$(stack_output "${STACK}" BucketName 2>/dev/null || true)"
 [[ -n "${BUCKET}" && "${BUCKET}" != "None" ]] || die "stack ${STACK} has no bucket"
 
 log "uploading to s3://${BUCKET}"
@@ -55,9 +76,7 @@ aws s3 sync "${ROOT}/frontend/dist" "s3://${BUCKET}" --delete \
 aws s3 cp "${ROOT}/frontend/dist/assets" "s3://${BUCKET}/assets" --recursive \
   --cache-control "public,max-age=31536000,immutable"
 
-SITE="$(stack_output "${STACK}" SiteUrl)"
-SITE="${SITE%/}"
-ORIGINS="http://localhost:3000,${SITE}"
+ORIGINS="http://localhost:3000,${SITE_URL}"
 if [[ -n "${APP_DOMAIN:-}" ]]; then
   ORIGINS="${ORIGINS},https://${APP_DOMAIN}"
 fi
@@ -65,5 +84,5 @@ fi
 log "allowing the site through CORS on the API"
 SKIP_BUILD=1 CORS_ORIGINS="${ORIGINS}" "${ROOT}/scripts/deploy-backend.sh" >/dev/null
 
-log "frontend is at ${SITE}"
-printf '%s\n' "${SITE}"
+log "frontend is at ${SITE_URL}"
+printf '%s\n' "${SITE_URL}"

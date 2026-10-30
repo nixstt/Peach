@@ -39,6 +39,14 @@ Parameters:
   HostedZoneId:
     Type: String
     Default: ""
+  CognitoUserPoolId:
+    Type: String
+    Default: ""
+    Description: Cognito user pool ID for JWT verification.
+  CognitoClientId:
+    Type: String
+    Default: ""
+    Description: Cognito app client ID for JWT verification.
 
 Conditions:
   HasCert: !Not [!Equals [!Ref CertificateArn, ""]]
@@ -126,6 +134,12 @@ Resources:
               Value: spry
             - Name: DB_USER
               Value: postgres
+            - Name: COGNITO_USER_POOL_ID
+              Value: !Ref CognitoUserPoolId
+            - Name: COGNITO_CLIENT_ID
+              Value: !Ref CognitoClientId
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
           Secrets:
             - Name: DB_PASSWORD
               ValueFrom: !Ref DbPasswordSecretArn

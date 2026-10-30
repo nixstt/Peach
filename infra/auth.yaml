@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Spry Cognito user pool with Google as a federated identity provider.
+  Managed login (Essentials tier) provides the hosted sign-in page.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: spry
+  GoogleClientId:
+    Type: String
+    Description: OAuth 2.0 client ID from the Google Cloud console.
+  GoogleClientSecret:
+    Type: String
+    NoEcho: true
+    Description: OAuth 2.0 client secret – never stored in plaintext in this template.
+  CognitoDomainPrefix:
+    Type: String
+    Description: >-
+      Prefix for the Cognito hosted-UI domain, e.g. spry-auth-1234.
+      The full domain will be https://<prefix>.auth.us-east-1.amazoncognito.com.
+  CallbackUrls:
+    Type: CommaDelimitedList
+    Description: >-
+      Comma-separated list of allowed callback URLs, e.g.
+      https://demo.example.com/auth/callback/,http://localhost:3000/auth/callback/
+  LogoutUrls:
+    Type: CommaDelimitedList
+    Description: >-
+      Comma-separated list of allowed logout URLs, e.g.
+      https://demo.example.com/,http://localhost:3000/
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${ProjectName}-users"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 7
+      UserPoolTier: ESSENTIALS
+      UserPoolTags:
+        PROJECT_NAME: !Ref ProjectName
+
+  GoogleIdP:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: "openid email profile"
+      AttributeMapping:
+        email: email
+        email_verified: email_verified
+        name: name
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: GoogleIdP
+    Properties:
+      ClientName: !Sub "${ProjectName}-web"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+        - Google
+      CallbackURLs: !Ref CallbackUrls
+      LogoutURLs: !Ref LogoutUrls
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref UserPool
+      ManagedLoginVersion: 2
+
+  ManagedLoginBranding:
+    Type: AWS::Cognito::ManagedLoginBranding
+    DependsOn: UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientId: !Ref UserPoolClient
+      UseCognitoProvidedValues: true
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Value: !Sub "https://${CognitoDomainPrefix}.auth.us-east-1.amazoncognito.com"
+  AuthorityUrl:
+    Value: !Sub "https://cognito-idp.us-east-1.amazonaws.com/${UserPool}"

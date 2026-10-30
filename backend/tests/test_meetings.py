@@ -112,3 +112,18 @@ def test_rejects_invalid_body(client: TestClient, body: dict) -> None:
     response = client.post("/api/meetings", json=body)
     assert response.status_code == 422
     assert isinstance(response.json()["detail"], list)
+
+
+def test_unauthenticated_request_rejected(client: TestClient) -> None:
+    from app.auth import verify_token
+
+    app.dependency_overrides.pop(verify_token, None)
+    try:
+        response = client.get("/api/meetings")
+        assert response.status_code == 401
+    finally:
+        app.dependency_overrides[verify_token] = lambda: {
+            "sub": "test-user-id",
+            "client_id": "test-client-id",
+            "email": "tester@example.com",
+        }

@@ -53,6 +53,13 @@ overrides=("ProjectName=${PROJECT_NAME}" "ImageUri=${IMAGE}" "DesiredCount=1")
 [[ -n "${ACM_CERTIFICATE_ARN:-}" ]] && overrides+=("CertificateArn=${ACM_CERTIFICATE_ARN}")
 [[ -n "${API_DOMAIN:-}" ]] && overrides+=("ApiDomain=${API_DOMAIN}")
 [[ -n "${HOSTED_ZONE_ID:-}" ]] && overrides+=("HostedZoneId=${HOSTED_ZONE_ID}")
+AUTH_STACK="${PROJECT_NAME}-auth"
+if [[ -n "$(stack_status "${AUTH_STACK}" 2>/dev/null || true)" ]]; then
+  COGNITO_USER_POOL_ID="${COGNITO_USER_POOL_ID:-$(stack_output "${AUTH_STACK}" UserPoolId)}"
+  COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID:-$(stack_output "${AUTH_STACK}" UserPoolClientId)}"
+  [[ -n "${COGNITO_USER_POOL_ID:-}" ]] && overrides+=("CognitoUserPoolId=${COGNITO_USER_POOL_ID}")
+  [[ -n "${COGNITO_CLIENT_ID:-}" ]] && overrides+=("CognitoClientId=${COGNITO_CLIENT_ID}")
+fi
 
 if [[ -z "${STATUS}" ]]; then
   log "this creates an Application Load Balancer, a Fargate service, and an RDS Postgres instance"

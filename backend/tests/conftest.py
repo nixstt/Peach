@@ -1,10 +1,13 @@
 import os
-
+import pytest
 import psycopg
 from psycopg import sql
 
 from alembic import command
 from alembic.config import Config
+
+from app.auth import verify_token
+from app.main import app
 
 os.environ.setdefault(
     "DATABASE_URL",
@@ -31,3 +34,15 @@ def _ensure_database() -> None:
 def pytest_configure() -> None:
     _ensure_database()
     command.upgrade(Config("alembic.ini"), "head")
+
+
+@pytest.fixture(autouse=True)
+def _mock_auth():
+    """Mock authentication so existing API unit tests pass without real Cognito tokens."""
+    app.dependency_overrides[verify_token] = lambda: {
+        "sub": "test-user-id",
+        "client_id": "test-client-id",
+        "email": "tester@example.com",
+    }
+    yield
+    app.dependency_overrides.pop(verify_token, None)

@@ -44,12 +44,23 @@ function formatDetail(detail: unknown): string {
   return "Request failed";
 }
 
+/** Call this from a React component when the auth state changes. */
+let _accessToken: string | null = null;
+export function setAccessToken(token: string | null): void {
+  _accessToken = token;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const authHeaders: Record<string, string> = _accessToken
+    ? { Authorization: `Bearer ${_accessToken}` }
+    : {};
+
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...authHeaders,
       ...init?.headers,
     },
   });

@@ -1,6 +1,6 @@
 COMPOSE := docker compose
 
-.PHONY: help up down reset lint test deploy-backend deploy-frontend domain github-role destroy-backend destroy-frontend destroy-github-role logs-backend
+.PHONY: help up down reset lint test deploy-backend deploy-frontend domain github-role destroy-backend destroy-frontend destroy-github-role logs-backend deploy-auth destroy-auth logs-auth
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
@@ -47,3 +47,12 @@ destroy-github-role: ## Delete the deploy role
 
 logs-backend: ## Tail the deployed API logs
 	aws logs tail /ecs/$${PROJECT_NAME:-spry}-backend --follow --since 10m
+
+deploy-auth: ## Deploy the Cognito user pool and Google IdP
+	./scripts/deploy-auth.sh
+
+destroy-auth: ## Delete the Cognito auth stack
+	./scripts/destroy-auth.sh
+
+logs-auth: ## Tail recent Cognito user pool events (last 10 min)
+	@echo "Open the AWS Cognito console to view user pool events."
