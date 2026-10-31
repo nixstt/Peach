@@ -115,6 +115,6 @@ Resources:
 
 Outputs:
   SiteUrl:
-    Value: !GetAtt FunctionUrl.FunctionUrl
+    Value: !Sub "${FunctionUrl.FunctionUrl}"
   BucketName:
     Value: !Ref Bucket

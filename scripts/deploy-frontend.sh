@@ -46,7 +46,12 @@ COGNITO_AUTHORITY="${COGNITO_AUTHORITY:-$(stack_output "${AUTH_STACK}" Authority
 COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID:-$(stack_output "${AUTH_STACK}" UserPoolClientId 2>/dev/null || true)}"
 COGNITO_DOMAIN="${COGNITO_DOMAIN:-$(stack_output "${AUTH_STACK}" CognitoDomain 2>/dev/null || true)}"
 
-SITE_URL="$(stack_output "${STACK}" SiteUrl 2>/dev/null || true)"
+SITE_URL="$(aws lambda get-function-url-config \
+  --function-name "${PROJECT_NAME}-frontend" \
+  --query FunctionUrl --output text 2>/dev/null || true)"
+if [[ -z "${SITE_URL}" || "${SITE_URL}" == "None" ]]; then
+  SITE_URL="$(stack_output "${STACK}" SiteUrl 2>/dev/null || true)"
+fi
 if [[ -z "${SITE_URL}" || "${SITE_URL}" == "None" ]]; then
   SITE_URL="https://lruc3lxk63eduqfsfqfxm26fr40rliuh.lambda-url.eu-north-1.on.aws"
 fi

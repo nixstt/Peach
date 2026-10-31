@@ -20,7 +20,12 @@ STACK="${PROJECT_NAME}-auth"
 # Callback / logout URLs: the deployed site plus localhost for development.
 FRONTEND_STACK="${PROJECT_NAME}-frontend"
 if [[ -n "$(stack_status "${FRONTEND_STACK}" 2>/dev/null || true)" ]]; then
-  SITE_URL="$(stack_output "${FRONTEND_STACK}" SiteUrl)"
+  SITE_URL="$(aws lambda get-function-url-config \
+    --function-name "${PROJECT_NAME}-frontend" \
+    --query FunctionUrl --output text 2>/dev/null || true)"
+  if [[ -z "${SITE_URL}" || "${SITE_URL}" == "None" ]]; then
+    SITE_URL="$(stack_output "${FRONTEND_STACK}" SiteUrl)"
+  fi
   SITE_URL="${SITE_URL%/}"
 else
   log "frontend stack not found in CloudFormation – using default deployed URL"
