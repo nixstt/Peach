@@ -20,6 +20,12 @@ def client() -> TestClient:
     return TestClient(app)
 
 
+def test_health_checks_database(client: TestClient) -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_list_is_empty(client: TestClient) -> None:
     response = client.get("/api/meetings")
     assert response.status_code == 200

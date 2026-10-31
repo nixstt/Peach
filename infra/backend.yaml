@@ -152,7 +152,7 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/meetings')"
+              - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
             Interval: 30
             Timeout: 5
             Retries: 3
@@ -258,7 +258,7 @@ Resources:
       Protocol: HTTP
       Port: 8000
       HealthCheckProtocol: HTTP
-      HealthCheckPath: /api/meetings
+      HealthCheckPath: /health
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
