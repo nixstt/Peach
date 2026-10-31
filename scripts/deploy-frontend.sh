@@ -54,8 +54,15 @@ SITE_URL="${SITE_URL%/}"
 AUTH_REDIRECT_URI="${SITE_URL}/auth/callback/"
 AUTH_LOGOUT_URI="${SITE_URL}/"
 
-docker run --rm \
-  -v "${ROOT}/frontend:/app" \
+FRONTEND_DIR="${ROOT}/frontend"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    FRONTEND_DIR="$(cygpath -m "${FRONTEND_DIR}")"
+    ;;
+esac
+
+MSYS_NO_PATHCONV=1 docker run --rm \
+  -v "${FRONTEND_DIR}:/app" \
   -w /app \
   -e "VITE_API_URL=${API_URL}" \
   -e "VITE_COGNITO_AUTHORITY=${COGNITO_AUTHORITY:-}" \
