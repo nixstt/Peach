@@ -18,7 +18,7 @@ Parameters:
     Type: String
     Description: >-
       Prefix for the Cognito hosted-UI domain, e.g. spry-auth-1234.
-      The full domain will be https://<prefix>.auth.us-east-1.amazoncognito.com.
+      The full domain will be https://<prefix>.auth.<region>.amazoncognito.com.
   CallbackUrls:
     Type: CommaDelimitedList
     Description: >-
@@ -112,6 +112,6 @@ Outputs:
   UserPoolClientId:
     Value: !Ref UserPoolClient
   CognitoDomain:
-    Value: !Sub "https://${CognitoDomainPrefix}.auth.us-east-1.amazoncognito.com"
+    Value: !Sub "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
   AuthorityUrl:
-    Value: !Sub "https://cognito-idp.us-east-1.amazonaws.com/${UserPool}"
+    Value: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
