@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import database_url
 
-connect_args = {}
+connect_args = {"connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "10"))}
 if sslmode := os.environ.get("DB_SSLMODE"):
     connect_args["sslmode"] = sslmode
 

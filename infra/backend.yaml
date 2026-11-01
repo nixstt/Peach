@@ -471,6 +471,7 @@ Resources:
           DB_USER: postgres
           DB_PASSWORD: !Sub "{{resolve:secretsmanager:${DbPasswordSecretArn}:SecretString}}"
           DB_SSLMODE: require
+          DB_CONNECT_TIMEOUT: "10"
           REPORTS_BUCKET: !Ref ReportsBucket
 
   ReportBuilderScheduleRole:
