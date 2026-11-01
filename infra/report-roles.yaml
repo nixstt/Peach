@@ -64,7 +64,7 @@ Resources:
                 Action: s3:GetObject
                 Resource: !Sub "arn:aws:s3:::${ProjectName}-reports-${AWS::AccountId}/reports/*"
               - Effect: Allow
-                Action: ses:SendEmail
+                Action: ses:SendRawEmail
                 Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${ReportSenderEmail}"
 
 Outputs:
