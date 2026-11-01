@@ -22,6 +22,13 @@ else
   aws cloudformation wait stack-delete-complete --stack-name "${STACK}"
 fi
 
+REPORT_ROLE_STACK="${PROJECT_NAME}-report-roles"
+if [[ -n "$(stack_status "${REPORT_ROLE_STACK}")" ]]; then
+  log "deleting report execution role stack ${REPORT_ROLE_STACK}"
+  aws cloudformation delete-stack --stack-name "${REPORT_ROLE_STACK}"
+  aws cloudformation wait stack-delete-complete --stack-name "${REPORT_ROLE_STACK}"
+fi
+
 if aws ecr describe-repositories --repository-names "${PROJECT_NAME}-backend" >/dev/null 2>&1; then
   log "deleting ECR repository ${PROJECT_NAME}-backend"
   aws ecr delete-repository --repository-name "${PROJECT_NAME}-backend" --force >/dev/null

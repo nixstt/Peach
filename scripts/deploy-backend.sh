@@ -16,9 +16,28 @@ require_region
 STACK="${PROJECT_NAME}-backend"
 REPO_NAME="${PROJECT_NAME}-backend"
 SECRET_NAME="${PROJECT_NAME}/db-password"
+REPORT_ROLE_STACK="${PROJECT_NAME}-report-roles"
 
 drop_failed_stack "${STACK}"
 STATUS="$(stack_status "${STACK}")"
+
+drop_failed_stack "${REPORT_ROLE_STACK}"
+log "deploying report execution roles"
+aws cloudformation deploy \
+  --stack-name "${REPORT_ROLE_STACK}" \
+  --template-file "$(cygpath -w "${ROOT}/infra/report-roles.yaml")" \
+  --parameter-overrides \
+    "ProjectName=${PROJECT_NAME}" \
+    "ReportSenderEmail=${REPORT_SENDER_EMAIL}" \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --no-fail-on-empty-changeset \
+  --tags "PROJECT_NAME=${PROJECT_NAME}"
+REPORT_BUILDER_ROLE_ARN="$(stack_output "${REPORT_ROLE_STACK}" ReportBuilderRoleArn)"
+REPORT_MAILER_ROLE_ARN="$(stack_output "${REPORT_ROLE_STACK}" ReportMailerRoleArn)"
+[[ -n "${REPORT_BUILDER_ROLE_ARN}" && "${REPORT_BUILDER_ROLE_ARN}" != "None" ]] \
+  || die "report builder execution role was not created"
+[[ -n "${REPORT_MAILER_ROLE_ARN}" && "${REPORT_MAILER_ROLE_ARN}" != "None" ]] \
+  || die "report mailer execution role was not created"
 
 if [[ "${SKIP_BUILD:-}" == "1" ]]; then
   [[ -n "${STATUS}" ]] || die "there is no ${STACK} stack yet. Run make deploy-backend first."
@@ -57,6 +76,8 @@ overrides=(
   "DesiredCount=1"
   "ReportSenderEmail=${REPORT_SENDER_EMAIL}"
   "ReportRecipients=${REPORT_RECIPIENTS}"
+  "ReportBuilderRoleArn=${REPORT_BUILDER_ROLE_ARN}"
+  "ReportMailerRoleArn=${REPORT_MAILER_ROLE_ARN}"
 )
 [[ -n "${CORS_ORIGINS:-}" ]] && overrides+=("CorsOrigins=${CORS_ORIGINS}")
 [[ -n "${ACM_CERTIFICATE_ARN:-}" ]] && overrides+=("CertificateArn=${ACM_CERTIFICATE_ARN}")

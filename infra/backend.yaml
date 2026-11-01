@@ -50,6 +50,12 @@ Parameters:
   ReportRecipients:
     Type: String
     Description: Comma-separated verified email addresses that receive reports.
+  ReportBuilderRoleArn:
+    Type: String
+    Description: Execution role ARN from the report-roles stack.
+  ReportMailerRoleArn:
+    Type: String
+    Description: Execution role ARN from the report-roles stack.
   RouteTableIds:
     Type: CommaDelimitedList
     Description: Route tables used by Lambda subnets for the S3 gateway endpoint.
@@ -439,40 +445,6 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${ProjectName}-report-builder"
       RetentionInDays: 30
 
-  ReportBuilderRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${ProjectName}-report-builder"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-      Policies:
-        - PolicyName: write-report-objects
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: s3:PutObject
-                Resource: !Sub "arn:aws:s3:::${ProjectName}-reports-${AWS::AccountId}/reports/*"
-        - PolicyName: consume-report-requests
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:ChangeMessageVisibility
-                Resource: !GetAtt ReportRequestsQueue.Arn
-
   ReportBuilderFunction:
     Type: AWS::Lambda::Function
     DependsOn: ReportBuilderLogGroup
@@ -484,7 +456,7 @@ Resources:
       ImageConfig:
         Command:
           - app.reports.lambda_handler.handler
-      Role: !GetAtt ReportBuilderRole.Arn
+      Role: !Ref ReportBuilderRoleArn
       Timeout: 90
       MemorySize: 512
       VpcConfig:
@@ -589,31 +561,6 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${ProjectName}-report-mailer"
       RetentionInDays: 30
 
-  ReportMailerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${ProjectName}-report-mailer"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: read-reports-and-send
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: s3:GetObject
-                Resource: !Sub "arn:aws:s3:::${ProjectName}-reports-${AWS::AccountId}/reports/*"
-              - Effect: Allow
-                Action: ses:SendEmail
-                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${ReportSenderEmail}"
-
   ReportMailerFunction:
     Type: AWS::Lambda::Function
     DependsOn: ReportMailerLogGroup
@@ -625,7 +572,7 @@ Resources:
       ImageConfig:
         Command:
           - app.mailer.handler
-      Role: !GetAtt ReportMailerRole.Arn
+      Role: !Ref ReportMailerRoleArn
       Timeout: 30
       MemorySize: 256
       Environment:
