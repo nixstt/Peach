@@ -11,10 +11,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=app:app . .
-RUN sed -i 's/\r$//' scripts/entrypoint.sh && chmod +x scripts/entrypoint.sh
+RUN sed -i 's/\r$//' scripts/entrypoint.sh scripts/container-entrypoint.sh \
+    && chmod +x scripts/entrypoint.sh scripts/container-entrypoint.sh
 
 USER app
 
 EXPOSE 8000
 
-CMD ["./scripts/entrypoint.sh"]
+ENTRYPOINT ["./scripts/container-entrypoint.sh"]
+CMD ["app.reports.lambda_handler.handler"]

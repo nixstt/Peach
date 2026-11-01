@@ -1,11 +1,29 @@
 import os
 
+from sqlalchemy.engine import URL
+
 
 def database_url() -> str:
     url = os.environ.get("DATABASE_URL", "").strip()
-    if not url:
-        raise RuntimeError("DATABASE_URL is not set")
-    return url
+    if url:
+        return url
+
+    required = ("DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME")
+    missing = [key for key in required if not os.environ.get(key)]
+    if missing:
+        raise RuntimeError(
+            "DATABASE_URL is not set and database settings are missing: " + ", ".join(missing)
+        )
+    return str(
+        URL.create(
+            "postgresql+psycopg",
+            username=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"],
+            host=os.environ["DB_HOST"],
+            port=int(os.environ["DB_PORT"]),
+            database=os.environ["DB_NAME"],
+        )
+    )
 
 
 def cors_origins() -> list[str]:

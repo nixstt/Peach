@@ -13,6 +13,12 @@ export type MeetingInput = {
   attendee_count: number;
 };
 
+export type WeeklyReportRequest = {
+  request_id: number;
+  week: string;
+  status: string;
+};
+
 const base = (import.meta.env.VITE_API_URL ?? "http://localhost:8000").replace(
   /\/$/,
   "",
@@ -87,5 +93,11 @@ export function createMeeting(input: MeetingInput): Promise<Meeting> {
   return request<Meeting>("/api/meetings", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function requestWeeklyReport(): Promise<WeeklyReportRequest> {
+  return request<WeeklyReportRequest>("/api/reports/weekly", {
+    method: "POST",
   });
 }

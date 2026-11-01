@@ -4,6 +4,7 @@ import { useAuth } from "react-oidc-context";
 import {
   createMeeting,
   listMeetings,
+  requestWeeklyReport,
   setAccessToken,
   type Meeting,
   type MeetingInput,
@@ -99,6 +100,8 @@ function MainApp() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [requestingReport, setRequestingReport] = useState(false);
+  const [reportMessage, setReportMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setAccessToken(auth.user?.access_token ?? null);
@@ -136,6 +139,26 @@ function MainApp() {
     await refresh();
   }
 
+  async function onRequestReport() {
+    setRequestingReport(true);
+    setReportMessage(null);
+    setError(null);
+    try {
+      const request = await requestWeeklyReport();
+      setReportMessage(
+        `Report for ${request.week} was queued for delivery to the configured report recipients.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not request the weekly report.",
+      );
+    } finally {
+      setRequestingReport(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-5 py-10">
       <Header />
@@ -148,6 +171,25 @@ function MainApp() {
         </p>
       ) : null}
       <WeekSummary meetings={meetings} />
+      {auth.isAuthenticated ? (
+        <div className="mt-4">
+          <button
+            type="button"
+            disabled={requestingReport}
+            onClick={() => void onRequestReport()}
+            className="rounded-md bg-spruce px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+          >
+            {requestingReport
+              ? "Requesting report..."
+              : "Send me this week's report"}
+          </button>
+          {reportMessage ? (
+            <p className="mt-2 text-sm text-spruce" role="status">
+              {reportMessage}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[300px_1fr]">
         <MeetingForm onCreate={onCreate} />
         <MeetingTable meetings={meetings} loading={loading} />

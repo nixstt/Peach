@@ -10,6 +10,9 @@ load_env "${ROOT}"
 require_aws
 require_region
 
+: "${REPORTS_DOMAIN:?Set REPORTS_DOMAIN in .env to a domain you control}"
+: "${REPORT_RECIPIENTS:?Set REPORT_RECIPIENTS in .env to verified email addresses}"
+
 STACK="${PROJECT_NAME}-backend"
 REPO_NAME="${PROJECT_NAME}-backend"
 SECRET_NAME="${PROJECT_NAME}/db-password"
@@ -48,7 +51,13 @@ else
   docker push "${IMAGE}"
 fi
 
-overrides=("ProjectName=${PROJECT_NAME}" "ImageUri=${IMAGE}" "DesiredCount=1")
+overrides=(
+  "ProjectName=${PROJECT_NAME}"
+  "ImageUri=${IMAGE}"
+  "DesiredCount=1"
+  "ReportsDomain=${REPORTS_DOMAIN}"
+  "ReportRecipients=${REPORT_RECIPIENTS}"
+)
 [[ -n "${CORS_ORIGINS:-}" ]] && overrides+=("CorsOrigins=${CORS_ORIGINS}")
 [[ -n "${ACM_CERTIFICATE_ARN:-}" ]] && overrides+=("CertificateArn=${ACM_CERTIFICATE_ARN}")
 [[ -n "${API_DOMAIN:-}" ]] && overrides+=("ApiDomain=${API_DOMAIN}")
@@ -77,7 +86,6 @@ if [[ -z "${STATUS}" ]]; then
   [[ -n "${ENGINE_VERSION}" ]] || die "could not find a Postgres 16 version in RDS"
 
   if aws secretsmanager describe-secret --secret-id "${SECRET_NAME}" >/dev/null 2>&1; then
-    PASS="$(aws secretsmanager get-secret-value --secret-id "${SECRET_NAME}" --query SecretString --output text)"
     SECRET_ARN="$(aws secretsmanager describe-secret --secret-id "${SECRET_NAME}" --query ARN --output text)"
   else
     PASS="$(openssl rand -hex 20)"
@@ -88,10 +96,19 @@ if [[ -z "${STATUS}" ]]; then
     "VpcId=${VPC_ID}"
     "PublicSubnetIds=${SUBNET_CSV}"
     "EngineVersion=${ENGINE_VERSION}"
-    "DBPassword=${PASS}"
     "DbPasswordSecretArn=${SECRET_ARN}"
   )
+else
+  VPC_ID="$(stack_param "${STACK}" VpcId)"
 fi
+
+[[ -n "${VPC_ID:-}" && "${VPC_ID}" != "None" ]] || die "could not determine the backend VPC"
+ROUTE_TABLE_CSV="$(aws ec2 describe-route-tables \
+  --filters Name=vpc-id,Values="${VPC_ID}" \
+  --query 'RouteTables[].RouteTableId' --output text | tr '\t' ',')"
+[[ -n "${ROUTE_TABLE_CSV}" && "${ROUTE_TABLE_CSV}" != "None" ]] \
+  || die "could not find route tables in ${VPC_ID}"
+overrides+=("RouteTableIds=${ROUTE_TABLE_CSV}")
 
 log "updating stack ${STACK}"
 if ! aws cloudformation deploy \
@@ -114,3 +131,6 @@ aws ecs wait services-stable --cluster "${PROJECT_NAME}" --services "${PROJECT_N
 API_URL="$(stack_output "${STACK}" ApiUrl)"
 log "backend is at ${API_URL}"
 printf '%s\n' "${API_URL}"
+log "report bucket: $(stack_output "${STACK}" ReportsBucketName)"
+log "report queue:  $(stack_output "${STACK}" ReportRequestsQueueUrl)"
+log "add the three SES DKIM CNAMEs from the stack outputs before expecting email delivery"

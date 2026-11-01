@@ -12,6 +12,11 @@ STACK="${PROJECT_NAME}-backend"
 if [[ -z "$(stack_status "${STACK}")" ]]; then
   log "no ${STACK} stack"
 else
+  REPORTS_BUCKET="$(stack_output "${STACK}" ReportsBucketName)"
+  if [[ -n "${REPORTS_BUCKET}" && "${REPORTS_BUCKET}" != "None" ]]; then
+    log "emptying reports bucket ${REPORTS_BUCKET} so CloudFormation can delete it"
+    aws s3 rm "s3://${REPORTS_BUCKET}/reports/" --recursive
+  fi
   log "deleting ${STACK}. RDS and the load balancer can take ten to fifteen minutes."
   aws cloudformation delete-stack --stack-name "${STACK}"
   aws cloudformation wait stack-delete-complete --stack-name "${STACK}"

@@ -22,9 +22,6 @@ Parameters:
   EngineVersion:
     Type: String
     Description: RDS Postgres 16 minor version, for example 16.8.
-  DBPassword:
-    Type: String
-    NoEcho: true
   DbPasswordSecretArn:
     Type: String
   CorsOrigins:
@@ -47,6 +44,15 @@ Parameters:
     Type: String
     Default: ""
     Description: Cognito app client ID for JWT verification.
+  ReportsDomain:
+    Type: String
+    Description: Domain that SES will verify for the report sender.
+  ReportRecipients:
+    Type: String
+    Description: Comma-separated verified email addresses that receive reports.
+  RouteTableIds:
+    Type: CommaDelimitedList
+    Description: Route tables used by Lambda subnets for the S3 gateway endpoint.
 
 Conditions:
   HasCert: !Not [!Equals [!Ref CertificateArn, ""]]
@@ -223,7 +229,7 @@ Resources:
       StorageType: gp3
       StorageEncrypted: true
       MasterUsername: postgres
-      MasterUserPassword: !Ref DBPassword
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbPasswordSecretArn}:SecretString}}"
       DBName: spry
       VPCSecurityGroups:
         - !Ref DbSecurityGroup
@@ -370,6 +376,277 @@ Resources:
       StageName: $default
       AutoDeploy: true
 
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: ReportMailerPermission
+    Properties:
+      BucketName: !Sub "${ProjectName}-reports-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-reports-after-90-days
+            Status: Enabled
+            Prefix: reports/
+            ExpirationInDays: 90
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ReportMailerFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: reports/
+                  - Name: suffix
+                    Value: .csv
+
+  ReportsS3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      VpcId: !Ref VpcId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds: !Ref RouteTableIds
+
+  ReportRequestsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-report-requests-dlq"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  ReportRequestsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-report-requests"
+      VisibilityTimeout: 600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ReportRequestsDlq.Arn
+        maxReceiveCount: 3
+
+  ReportBuilderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-report-builder"
+      RetentionInDays: 30
+
+  ReportBuilderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-report-builder"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: write-report-objects
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${ProjectName}-reports-${AWS::AccountId}/reports/*"
+        - PolicyName: consume-report-requests
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt ReportRequestsQueue.Arn
+
+  ReportBuilderFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ReportBuilderLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectName}-report-builder"
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - app.reports.lambda_handler.handler
+      Role: !GetAtt ReportBuilderRole.Arn
+      Timeout: 90
+      MemorySize: 512
+      VpcConfig:
+        SubnetIds: !Ref PublicSubnetIds
+        SecurityGroupIds:
+          - !Ref ServiceSecurityGroup
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_PORT: "5432"
+          DB_NAME: spry
+          DB_USER: postgres
+          DB_PASSWORD: !Sub "{{resolve:secretsmanager:${DbPasswordSecretArn}:SecretString}}"
+          REPORTS_BUCKET: !Ref ReportsBucket
+
+  ReportBuilderScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-report-schedule"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: enqueue-scheduled-report
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ReportRequestsQueue.Arn
+
+  ReportWeeklySchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub "${ProjectName}-weekly-report"
+      Description: Request the previous ISO week's meeting report every Monday morning.
+      State: ENABLED
+      ScheduleExpression: cron(0 7 ? * MON *)
+      ScheduleExpressionTimezone: Europe/Kyiv
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt ReportRequestsQueue.Arn
+        RoleArn: !GetAtt ReportBuilderScheduleRole.Arn
+        Input: '{"week": null, "source": "schedule"}'
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 3600
+          MaximumRetryAttempts: 3
+
+  ReportOutboxScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-report-outbox-schedule"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invoke-report-outbox-poller
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt ReportBuilderFunction.Arn
+
+  ReportOutboxSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub "${ProjectName}-report-outbox-poller"
+      Description: Poll durable in-database report requests.
+      State: ENABLED
+      ScheduleExpression: rate(5 minutes)
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt ReportBuilderFunction.Arn
+        RoleArn: !GetAtt ReportOutboxScheduleRole.Arn
+        Input: '{"source": "outbox-poller"}'
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 3600
+          MaximumRetryAttempts: 3
+
+  ReportBuilderEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt ReportRequestsQueue.Arn
+      FunctionName: !Ref ReportBuilderFunction
+      BatchSize: 1
+      Enabled: true
+
+  ReportMailerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-report-mailer"
+      RetentionInDays: 30
+
+  ReportMailerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-report-mailer"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-reports-and-send
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${ProjectName}-reports-${AWS::AccountId}/reports/*"
+              - Effect: Allow
+                Action: ses:SendEmail
+                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${ReportsDomain}"
+
+  ReportMailerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ReportMailerLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectName}-report-mailer"
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - app.reports.mailer.handler
+      Role: !GetAtt ReportMailerRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          REPORT_SENDER: !Sub "reports@${ReportsDomain}"
+          REPORT_RECIPIENTS: !Ref ReportRecipients
+
+  ReportMailerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ReportMailerFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "arn:aws:s3:::${ProjectName}-reports-${AWS::AccountId}"
+      SourceAccount: !Ref AWS::AccountId
+
+  ReportsEmailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref ReportsDomain
+
 Outputs:
   ApiUrl:
     Value: !If
@@ -382,3 +659,21 @@ Outputs:
     Value: !Ref Cluster
   ServiceName:
     Value: !GetAtt Service.Name
+  ReportsBucketName:
+    Value: !Ref ReportsBucket
+  ReportRequestsQueueUrl:
+    Value: !Ref ReportRequestsQueue
+  ReportRequestsDlqUrl:
+    Value: !Ref ReportRequestsDlq
+  ReportsDkimTokenName1:
+    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenName1
+  ReportsDkimTokenValue1:
+    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenValue1
+  ReportsDkimTokenName2:
+    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenName2
+  ReportsDkimTokenValue2:
+    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenValue2
+  ReportsDkimTokenName3:
+    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenName3
+  ReportsDkimTokenValue3:
+    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenValue3
