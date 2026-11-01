@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
@@ -5,7 +6,11 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import database_url
 
-engine = create_engine(database_url(), pool_pre_ping=True)
+connect_args = {}
+if sslmode := os.environ.get("DB_SSLMODE"):
+    connect_args["sslmode"] = sslmode
+
+engine = create_engine(database_url(), pool_pre_ping=True, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

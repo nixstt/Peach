@@ -470,6 +470,7 @@ Resources:
           DB_NAME: spry
           DB_USER: postgres
           DB_PASSWORD: !Sub "{{resolve:secretsmanager:${DbPasswordSecretArn}:SecretString}}"
+          DB_SSLMODE: require
           REPORTS_BUCKET: !Ref ReportsBucket
 
   ReportBuilderScheduleRole:
