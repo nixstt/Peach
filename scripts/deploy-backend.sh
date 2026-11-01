@@ -47,8 +47,8 @@ else
   log "building ${IMAGE}"
   aws ecr get-login-password --region "${AWS_REGION}" \
     | docker login --username AWS --password-stdin "${REGISTRY}"
-  docker build --platform linux/amd64 -t "${IMAGE}" "${ROOT}/backend"
-  docker push "${IMAGE}"
+  docker buildx build --platform linux/amd64 --provenance=false \
+    --push -t "${IMAGE}" "${ROOT}/backend"
 fi
 
 overrides=(
