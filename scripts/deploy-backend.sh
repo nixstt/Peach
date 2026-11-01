@@ -10,7 +10,7 @@ load_env "${ROOT}"
 require_aws
 require_region
 
-: "${REPORTS_DOMAIN:?Set REPORTS_DOMAIN in .env to a domain you control}"
+: "${REPORT_SENDER_EMAIL:?Set REPORT_SENDER_EMAIL in .env to an email address you control}"
 : "${REPORT_RECIPIENTS:?Set REPORT_RECIPIENTS in .env to verified email addresses}"
 
 STACK="${PROJECT_NAME}-backend"
@@ -55,7 +55,7 @@ overrides=(
   "ProjectName=${PROJECT_NAME}"
   "ImageUri=${IMAGE}"
   "DesiredCount=1"
-  "ReportsDomain=${REPORTS_DOMAIN}"
+  "ReportSenderEmail=${REPORT_SENDER_EMAIL}"
   "ReportRecipients=${REPORT_RECIPIENTS}"
 )
 [[ -n "${CORS_ORIGINS:-}" ]] && overrides+=("CorsOrigins=${CORS_ORIGINS}")
@@ -151,4 +151,4 @@ log "backend is at ${API_URL}"
 printf '%s\n' "${API_URL}"
 log "report bucket: $(stack_output "${STACK}" ReportsBucketName)"
 log "report queue:  $(stack_output "${STACK}" ReportRequestsQueueUrl)"
-log "add the three SES DKIM CNAMEs from the stack outputs before expecting email delivery"
+log "verify the SES sender identity using the confirmation email sent to ${REPORT_SENDER_EMAIL}"

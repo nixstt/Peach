@@ -44,9 +44,9 @@ Parameters:
     Type: String
     Default: ""
     Description: Cognito app client ID for JWT verification.
-  ReportsDomain:
+  ReportSenderEmail:
     Type: String
-    Description: Domain that SES will verify for the report sender.
+    Description: Email address that SES will verify as the report sender.
   ReportRecipients:
     Type: String
     Description: Comma-separated verified email addresses that receive reports.
@@ -612,7 +612,7 @@ Resources:
                 Resource: !Sub "arn:aws:s3:::${ProjectName}-reports-${AWS::AccountId}/reports/*"
               - Effect: Allow
                 Action: ses:SendEmail
-                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${ReportsDomain}"
+                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${ReportSenderEmail}"
 
   ReportMailerFunction:
     Type: AWS::Lambda::Function
@@ -630,7 +630,7 @@ Resources:
       MemorySize: 256
       Environment:
         Variables:
-          REPORT_SENDER: !Sub "reports@${ReportsDomain}"
+          REPORT_SENDER: !Ref ReportSenderEmail
           REPORT_RECIPIENTS: !Ref ReportRecipients
 
   ReportMailerPermission:
@@ -645,7 +645,7 @@ Resources:
   ReportsEmailIdentity:
     Type: AWS::SES::EmailIdentity
     Properties:
-      EmailIdentity: !Ref ReportsDomain
+      EmailIdentity: !Ref ReportSenderEmail
 
 Outputs:
   ApiUrl:
@@ -665,15 +665,3 @@ Outputs:
     Value: !Ref ReportRequestsQueue
   ReportRequestsDlqUrl:
     Value: !Ref ReportRequestsDlq
-  ReportsDkimTokenName1:
-    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenName1
-  ReportsDkimTokenValue1:
-    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenValue1
-  ReportsDkimTokenName2:
-    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenName2
-  ReportsDkimTokenValue2:
-    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenValue2
-  ReportsDkimTokenName3:
-    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenName3
-  ReportsDkimTokenValue3:
-    Value: !GetAtt ReportsEmailIdentity.DkimDNSTokenValue3
