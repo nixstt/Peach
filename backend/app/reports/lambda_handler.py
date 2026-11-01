@@ -14,8 +14,15 @@ from app.reports.weekly import build_weekly_report
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
-s3 = boto3.client("s3")
+s3 = None
 _REPORT_TIMEZONE = ZoneInfo("Europe/Kyiv")
+
+
+def _s3_client():
+    global s3
+    if s3 is None:
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    return s3
 
 
 def _previous_iso_week() -> str:
@@ -28,7 +35,7 @@ def _previous_iso_week() -> str:
 
 def _put_report(week: str) -> None:
     report = build_weekly_report(week)
-    s3.put_object(
+    _s3_client().put_object(
         Bucket=os.environ["REPORTS_BUCKET"],
         Key=f"reports/{week}.csv",
         Body=report,

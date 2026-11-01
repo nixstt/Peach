@@ -1,7 +1,12 @@
 import csv
 import io
+import json
 import re
 from datetime import UTC, datetime, timedelta
+from email import policy
+from email.parser import BytesParser
+from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +16,7 @@ from app.db import SessionLocal
 from app.main import app
 from app.models.meeting import Meeting
 from app.models.report_request import ReportRequest
+from app.reports import lambda_handler
 from app.reports.weekly import build_weekly_report
 
 
@@ -96,3 +102,91 @@ def test_report_request_is_persisted_for_current_iso_week(clean_report_data) -> 
     assert request is not None
     assert request.week == result["week"]
     assert request.processed_at is None
+
+
+def test_builder_handles_direct_and_sqs_invocations(monkeypatch, caplog) -> None:
+    uploads = []
+    caplog.set_level("INFO")
+    monkeypatch.setenv("REPORTS_BUCKET", "spry-reports-test")
+    monkeypatch.setattr(lambda_handler, "build_weekly_report", lambda week: week.encode())
+    monkeypatch.setattr(
+        lambda_handler,
+        "s3",
+        SimpleNamespace(put_object=lambda **kwargs: uploads.append(kwargs)),
+    )
+    monkeypatch.setattr(lambda_handler, "_previous_iso_week", lambda: "2026-W39")
+
+    direct = lambda_handler.handler({"week": "2026-W40"}, None)
+    queued = lambda_handler.handler(
+        {
+            "Records": [
+                {
+                    "body": json.dumps({"week": "2026-W39", "source": "manual"}),
+                }
+            ]
+        },
+        None,
+    )
+    scheduled = lambda_handler.handler(
+        {
+            "Records": [
+                {
+                    "body": json.dumps({"week": None, "source": "schedule"}),
+                }
+            ]
+        },
+        None,
+    )
+
+    assert direct == {"processed": 1}
+    assert queued == {"processed": 1}
+    assert scheduled == {"processed": 1}
+    assert [upload["Key"] for upload in uploads] == [
+        "reports/2026-W40.csv",
+        "reports/2026-W39.csv",
+        "reports/2026-W39.csv",
+    ]
+    assert "trigger=direct week=2026-W40" in caplog.text
+    assert "trigger=sqs week=2026-W39" in caplog.text
+    assert "trigger=schedule week=2026-W39" in caplog.text
+
+
+def test_mailer_downloads_csv_and_sends_raw_email(monkeypatch) -> None:
+    from app import mailer
+
+    sent_messages = []
+    monkeypatch.setenv("REPORT_SENDER", "reports@example.com")
+    monkeypatch.setenv("REPORT_RECIPIENTS", "reader@example.com")
+    monkeypatch.setattr(
+        mailer,
+        "s3",
+        SimpleNamespace(get_object=lambda **kwargs: {"Body": BytesIO(b"title\nPlanning\n")}),
+    )
+    monkeypatch.setattr(
+        mailer,
+        "sesv2",
+        SimpleNamespace(send_email=lambda **kwargs: sent_messages.append(kwargs)),
+    )
+
+    result = mailer.handler(
+        {
+            "Records": [
+                {
+                    "s3": {
+                        "bucket": {"name": "spry-reports-test"},
+                        "object": {"key": "reports/2026-W40.csv"},
+                    }
+                }
+            ]
+        },
+        None,
+    )
+
+    assert result == {"sent": 1}
+    assert sent_messages[0]["Destination"]["ToAddresses"] == ["reader@example.com"]
+    message = BytesParser(policy=policy.default).parsebytes(
+        sent_messages[0]["Content"]["Raw"]["Data"]
+    )
+    attachment = next(part for part in message.iter_attachments())
+    assert attachment.get_filename() == "2026-W40.csv"
+    assert attachment.get_content() == "title\nPlanning\n"

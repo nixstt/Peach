@@ -624,7 +624,7 @@ Resources:
         ImageUri: !Ref ImageUri
       ImageConfig:
         Command:
-          - app.reports.mailer.handler
+          - app.mailer.handler
       Role: !GetAtt ReportMailerRole.Arn
       Timeout: 30
       MemorySize: 256

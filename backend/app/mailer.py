@@ -7,8 +7,22 @@ import boto3
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
-s3 = boto3.client("s3")
-sesv2 = boto3.client("sesv2")
+s3 = None
+sesv2 = None
+
+
+def _s3_client():
+    global s3
+    if s3 is None:
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    return s3
+
+
+def _sesv2_client():
+    global sesv2
+    if sesv2 is None:
+        sesv2 = boto3.client("sesv2", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    return sesv2
 
 
 def handler(event: dict, context: object) -> dict[str, int]:
@@ -29,7 +43,7 @@ def handler(event: dict, context: object) -> dict[str, int]:
         bucket = s3_record["bucket"]["name"]
         key = unquote_plus(s3_record["object"]["key"])
         log.info("report-mailer object bucket=%s key=%s", bucket, key)
-        report = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        report = _s3_client().get_object(Bucket=bucket, Key=key)["Body"].read()
         filename = key.rsplit("/", 1)[-1]
         message = EmailMessage()
         message["Subject"] = f"Weekly meeting report {filename.removesuffix('.csv')}"
@@ -42,7 +56,7 @@ def handler(event: dict, context: object) -> dict[str, int]:
             subtype="csv",
             filename=filename,
         )
-        sesv2.send_email(
+        _sesv2_client().send_email(
             FromEmailAddress=sender,
             Destination={"ToAddresses": recipients},
             Content={"Raw": {"Data": message.as_bytes()}},
