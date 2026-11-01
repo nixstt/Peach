@@ -14,16 +14,14 @@ def database_url() -> str:
         raise RuntimeError(
             "DATABASE_URL is not set and database settings are missing: " + ", ".join(missing)
         )
-    return str(
-        URL.create(
-            "postgresql+psycopg",
-            username=os.environ["DB_USER"],
-            password=os.environ["DB_PASSWORD"],
-            host=os.environ["DB_HOST"],
-            port=int(os.environ["DB_PORT"]),
-            database=os.environ["DB_NAME"],
-        )
-    )
+    return URL.create(
+        "postgresql+psycopg",
+        username=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        host=os.environ["DB_HOST"],
+        port=int(os.environ["DB_PORT"]),
+        database=os.environ["DB_NAME"],
+    ).render_as_string(hide_password=False)
 
 
 def cors_origins() -> list[str]:
