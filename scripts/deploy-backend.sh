@@ -98,16 +98,34 @@ if [[ -z "${STATUS}" ]]; then
     "EngineVersion=${ENGINE_VERSION}"
     "DbPasswordSecretArn=${SECRET_ARN}"
   )
+  LAMBDA_SUBNET_CSV="${SUBNET_CSV}"
 else
   VPC_ID="$(stack_param "${STACK}" VpcId)"
+  LAMBDA_SUBNET_CSV="$(stack_param "${STACK}" PublicSubnetIds)"
 fi
 
 [[ -n "${VPC_ID:-}" && "${VPC_ID}" != "None" ]] || die "could not determine the backend VPC"
-ROUTE_TABLE_CSV="$(aws ec2 describe-route-tables \
-  --filters Name=vpc-id,Values="${VPC_ID}" \
-  --query 'RouteTables[].RouteTableId' --output text | tr '\t' ',')"
-[[ -n "${ROUTE_TABLE_CSV}" && "${ROUTE_TABLE_CSV}" != "None" ]] \
-  || die "could not find route tables in ${VPC_ID}"
+[[ -n "${LAMBDA_SUBNET_CSV:-}" && "${LAMBDA_SUBNET_CSV}" != "None" ]] \
+  || die "could not determine the Lambda subnets"
+IFS=',' read -r -a LAMBDA_SUBNET_IDS <<< "${LAMBDA_SUBNET_CSV}"
+ROUTE_TABLE_IDS=()
+for subnet_id in "${LAMBDA_SUBNET_IDS[@]}"; do
+  route_table_id="$(aws ec2 describe-route-tables \
+    --filters "Name=association.subnet-id,Values=${subnet_id}" \
+    --query 'RouteTables[0].RouteTableId' --output text)"
+  if [[ -z "${route_table_id}" || "${route_table_id}" == "None" ]]; then
+    route_table_id="$(aws ec2 describe-route-tables \
+      --filters "Name=vpc-id,Values=${VPC_ID}" "Name=association.main,Values=true" \
+      --query 'RouteTables[0].RouteTableId' --output text)"
+  fi
+  [[ -n "${route_table_id}" && "${route_table_id}" != "None" ]] \
+    || die "could not find the route table for subnet ${subnet_id}"
+  if [[ ! " ${ROUTE_TABLE_IDS[*]} " == *" ${route_table_id} "* ]]; then
+    ROUTE_TABLE_IDS+=("${route_table_id}")
+  fi
+done
+printf -v ROUTE_TABLE_CSV '%s,' "${ROUTE_TABLE_IDS[@]}"
+ROUTE_TABLE_CSV="${ROUTE_TABLE_CSV%,}"
 overrides+=("RouteTableIds=${ROUTE_TABLE_CSV}")
 
 log "updating stack ${STACK}"
