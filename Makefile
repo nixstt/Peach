@@ -1,6 +1,6 @@
 COMPOSE := docker compose
 
-.PHONY: help up down reset lint test deploy-backend deploy-frontend domain github-role destroy-backend destroy-frontend destroy-github-role logs-backend deploy-auth destroy-auth logs-auth report-now logs-reports
+.PHONY: help up down reset lint test deploy-backend deploy-ai deploy-frontend domain github-role destroy-backend destroy-frontend destroy-github-role logs-backend logs-ai deploy-auth destroy-auth logs-auth report-now logs-reports llm-hello parse
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
@@ -21,11 +21,14 @@ lint: ## Run ruff, eslint, prettier, and tsc inside the images
 
 test: ## Run pytest against spry_test, and the frontend unit tests
 	$(COMPOSE) build backend frontend
-	$(COMPOSE) run --rm --user root --entrypoint sh -e DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/spry_test backend -c "pip install -q -r requirements-dev.txt && pytest"
+	$(COMPOSE) run --rm --user root --entrypoint sh -e DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/spry_test backend -c "pip install -q -r requirements-dev.txt && python -m pytest"
 	$(COMPOSE) run --rm --no-deps --entrypoint npm frontend test
 
 deploy-backend: ## Build the image, push it to ECR, roll the ECS service
 	./scripts/deploy-backend.sh
+
+deploy-ai: ## Deploy the authenticated agenda parser Lambda and URL
+	./scripts/deploy-ai.sh
 
 deploy-frontend: ## Build the bundle, sync it to S3, invalidate CloudFront
 	./scripts/deploy-frontend.sh
@@ -47,6 +50,18 @@ destroy-github-role: ## Delete the deploy role
 
 logs-backend: ## Tail the deployed API logs
 	aws logs tail /ecs/$${PROJECT_NAME:-spry}-backend --follow --since 10m
+
+logs-ai: ## Tail recent agenda parser logs
+	aws logs tail /aws/lambda/$${PROJECT_NAME:-spry}-agenda-parser --follow --since 10m
+
+llm-hello: ## Make a small Bedrock Mantle call from the backend image
+	docker compose build backend
+	docker compose run --rm --no-deps -v "$$HOME/.aws:/home/app/.aws:ro" --entrypoint python -e AWS_PROFILE="$${AWS_PROFILE:-default}" -e AWS_REGION=us-east-1 -e PARSER_MODEL="$${PARSER_MODEL:-anthropic.claude-opus-5-5}" backend -m app.ai.cli hello
+
+parse: ## Parse TEXT with the configured model from the backend image
+	@test -n "$(TEXT)" || (echo 'Set TEXT="agenda text"' >&2; exit 2)
+	docker compose build backend
+	docker compose run --rm --no-deps -v "$$HOME/.aws:/home/app/.aws:ro" --entrypoint python -e AWS_PROFILE="$${AWS_PROFILE:-default}" -e AWS_REGION=us-east-1 -e PARSER_MODEL="$${PARSER_MODEL:-anthropic.claude-opus-5-5}" -e "TEXT=$(TEXT)" backend -m app.ai.cli parse
 
 report-now: ## Queue a report rebuild for WEEK=YYYY-Www
 	WEEK="$(WEEK)" bash ./scripts/report-now.sh

@@ -12,16 +12,21 @@ import {
 import { MeetingForm } from "@/components/meeting-form";
 import { MeetingTable } from "@/components/meeting-table";
 import { WeekSummary } from "@/components/week-summary";
+import { AgendaPasteForm } from "@/components/agenda-paste-form";
 import { AuthCallbackPage } from "@/pages/AuthCallback";
 import { LoginPage } from "@/pages/Login";
 
 const rawCognitoDomain = (import.meta.env.VITE_COGNITO_DOMAIN as string) || "";
-const cognitoClientId = (import.meta.env.VITE_COGNITO_CLIENT_ID as string) || "";
+const cognitoClientId =
+  (import.meta.env.VITE_COGNITO_CLIENT_ID as string) || "";
 const region = (import.meta.env.VITE_AWS_REGION as string) || "eu-north-1";
 
 function getCognitoDomainUrl(): string {
   if (!rawCognitoDomain) return "";
-  if (rawCognitoDomain.startsWith("http://") || rawCognitoDomain.startsWith("https://")) {
+  if (
+    rawCognitoDomain.startsWith("http://") ||
+    rawCognitoDomain.startsWith("https://")
+  ) {
     return rawCognitoDomain.replace(/\/$/, "");
   }
   return `https://${rawCognitoDomain}.auth.${region}.amazoncognito.com`;
@@ -189,6 +194,11 @@ function MainApp() {
             </p>
           ) : null}
         </div>
+      ) : null}
+      {auth.isAuthenticated ? (
+        <section className="mt-6" aria-label="Agenda tools">
+          <AgendaPasteForm />
+        </section>
       ) : null}
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[300px_1fr]">
         <MeetingForm onCreate={onCreate} />

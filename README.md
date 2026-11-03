@@ -10,6 +10,13 @@ The API is at <http://localhost:8000> and the app at <http://localhost:3000>. Ad
 
 `make lint` and `make test` run inside those images. Postgres for tests is a separate database, `spry_test`.
 
+Signed-in users can paste an agenda for a Claude suggestion, review and edit
+the proposed fields, and save the final agenda through the authenticated API.
+The parser Lambda runs outside the VPC and records the original suggestion
+beside the saved agenda for later quality evaluation. See
+[`docs/adr/0006-llm-agenda-parsing.md`](docs/adr/0006-llm-agenda-parsing.md)
+and [`docs/architecture.md`](docs/architecture.md).
+
 ## Deploy
 
 These commands bill by the hour once they succeed. The load balancer is about $16 a month, Fargate at this size is about $9, and RDS `db.t4g.micro` is inside the free tier for the first 12 months of an account and about $12 a month after that. There is no NAT gateway. Run the destroy targets when the lab is over.

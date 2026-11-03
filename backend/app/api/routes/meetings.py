@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.auth import verify_token
 from app.db import get_db
+from app.schemas.agenda import AgendaCreate, AgendaRead
 from app.schemas.meeting import MeetingCreate, MeetingRead
-from app.services import meetings, reports
+from app.services import agendas, meetings, reports
 
 router = APIRouter(prefix="/api")
 
@@ -21,6 +22,18 @@ def post_meeting(
     body: MeetingCreate, db: Session = Depends(get_db), _: dict = Depends(verify_token)
 ) -> MeetingRead:
     return meetings.create_meeting(db, body)
+
+
+@router.post("/agendas", response_model=AgendaRead, status_code=201)
+def post_agenda(
+    body: AgendaCreate,
+    db: Session = Depends(get_db),
+    requester: dict = Depends(verify_token),
+) -> AgendaRead:
+    user_sub = requester.get("sub")
+    if not isinstance(user_sub, str) or not user_sub:
+        raise HTTPException(status_code=401, detail="Authenticated user has no subject.")
+    return agendas.create_agenda(db, body, user_sub)
 
 
 @router.post("/reports/weekly", status_code=202)

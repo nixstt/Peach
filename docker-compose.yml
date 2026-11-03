@@ -46,6 +46,7 @@ services:
         condition: service_healthy
     environment:
       VITE_API_URL: http://localhost:8000
+      VITE_AI_PARSER_URL: ${VITE_AI_PARSER_URL:-}
     ports:
       - "3000:3000"
     command: ["npx", "vite", "--host", "0.0.0.0", "--port", "3000"]

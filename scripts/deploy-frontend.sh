@@ -45,6 +45,9 @@ AUTH_STACK="${PROJECT_NAME}-auth"
 COGNITO_AUTHORITY="${COGNITO_AUTHORITY:-$(stack_output "${AUTH_STACK}" AuthorityUrl 2>/dev/null || true)}"
 COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID:-$(stack_output "${AUTH_STACK}" UserPoolClientId 2>/dev/null || true)}"
 COGNITO_DOMAIN="${COGNITO_DOMAIN:-$(stack_output "${AUTH_STACK}" CognitoDomain 2>/dev/null || true)}"
+PARSER_URL="${VITE_AI_PARSER_URL:-$(stack_output "${PROJECT_NAME}-ai" ParserUrl 2>/dev/null || true)}"
+[[ -n "${PARSER_URL}" && "${PARSER_URL}" != "None" ]] \
+  || die "deploy the agenda parser first with make deploy-ai"
 
 SITE_URL="$(aws lambda get-function-url-config \
   --function-name "${PROJECT_NAME}-frontend" \
@@ -73,6 +76,7 @@ MSYS_NO_PATHCONV=1 docker run --rm \
   -e "VITE_COGNITO_AUTHORITY=${COGNITO_AUTHORITY:-}" \
   -e "VITE_COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID:-}" \
   -e "VITE_COGNITO_DOMAIN=${COGNITO_DOMAIN:-}" \
+  -e "VITE_AI_PARSER_URL=${PARSER_URL}" \
   -e "VITE_AUTH_REDIRECT_URI=${AUTH_REDIRECT_URI}" \
   -e "VITE_AUTH_LOGOUT_URI=${AUTH_LOGOUT_URI}" \
   node:22-alpine \
