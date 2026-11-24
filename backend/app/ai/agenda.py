@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import html
 import logging
 import os
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from anthropic import AnthropicBedrockMantle, APIConnectionError, APIStatusError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+if TYPE_CHECKING:
+    from anthropic import AnthropicBedrockMantle
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +81,8 @@ class AgendaModelBusyError(AgendaServiceError):
 
 
 def _client() -> AnthropicBedrockMantle:
+    from anthropic import AnthropicBedrockMantle
+
     return AnthropicBedrockMantle(aws_region=os.environ.get("PARSER_BEDROCK_REGION", "us-east-1"))
 
 
@@ -115,6 +121,8 @@ def cost_usd(model: str, usage: dict[str, int]) -> float:
 
 
 def parse_agenda(text: str, today: date, tz: str) -> tuple[ParsedAgenda, dict[str, int]]:
+    from anthropic import APIConnectionError, APIStatusError
+
     if not text.strip():
         raise AgendaParseError("Paste some agenda text first.")
     if len(text) > MAX_TEXT_LENGTH:
