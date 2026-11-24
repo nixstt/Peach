@@ -1,0 +1,10 @@
+Terraform validation output (Terraform v1.17.2, Windows amd64):
+
+> terraform init -input=false
+Terraform has been successfully initialized!
+
+> terraform validate
+Success! The configuration is valid.
+
+No Google Cloud credentials were used. The Terraform CLI downloaded the
+locked Google and Random provider versions during init.

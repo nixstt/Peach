@@ -1,0 +1,9 @@
+terraform {
+  cloud {
+    organization = "REPLACE_WITH_YOUR_HCP_TERRAFORM_ORGANIZATION"
+
+    workspaces {
+      name = "spry-gcp"
+    }
+  }
+}

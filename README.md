@@ -63,3 +63,23 @@ make destroy-backend
 CloudFront deletion often takes fifteen minutes. Destroy the frontend first.
 
 If an earlier Peach stack is still in this account (`peach-backend`, `peach-frontend`, `peach-github-oidc`), delete those too. They are not part of Spry and they keep billing.
+
+## Google Cloud (Lab 9)
+
+The independent GCP port uses Cloud Run, Cloud SQL for PostgreSQL, Artifact
+Registry, Secret Manager, and Firebase Hosting. It preserves the current
+PostgreSQL schema and Cognito token validation. The API has a Cloud Run-specific
+image that listens on the injected `PORT`; Firebase Hosting rewrites `/api/**`
+to that service. See [the GCP deployment guide](gcp/README.md),
+[ADR 0007](docs/adr/0007-google-cloud-hosting.md), and the
+[Lab 9 cost estimate](docs/gcp-costs.md).
+
+The GCP database starts empty and is initialized by Alembic migrations; AWS
+data is not copied. Cognito and the agenda-parser Lambda remain on AWS. The
+weekly-report API can record requests, but its AWS workers are not connected to
+the GCP database.
+
+Cloud SQL is billable while running and still incurs storage charges when
+stopped. Do not deploy the GCP stack unless you accept those charges. Keep its
+Terraform state separate from AWS and run `terraform destroy` in `gcp/` after
+the lab; the destroy removes the database and its data.

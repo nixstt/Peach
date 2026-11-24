@@ -1,0 +1,5 @@
+project_id = "replace-with-your-google-cloud-project-id"
+region     = "us-central1"
+cognito_user_pool_id = "replace-with-existing-cognito-user-pool-id"
+cognito_client_id   = "replace-with-existing-cognito-app-client-id"
+cognito_region      = "eu-north-1"
